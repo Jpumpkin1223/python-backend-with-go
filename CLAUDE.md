@@ -47,3 +47,29 @@ go build -o server main.go
 
 - Go 1.25.1 (specified in go.mod)
 - No external dependencies
+
+## Git Submodules
+
+This repository uses git submodules for Cursor AI rules:
+
+### Initial Setup
+```bash
+# Clone with submodules
+git clone --recurse-submodules https://github.com/Jpumpkin1223/python-backend-with-go.git
+
+# Or if already cloned, initialize submodules
+git submodule update --init --recursive
+```
+
+### Submodule Location
+- `.cursor/rules/` - Cursor AI development rules (managed separately at https://github.com/Jpumpkin1223/cursor-go-rules)
+
+### Updating Submodules
+```bash
+# Update submodule to latest commit
+git submodule update --remote .cursor/rules
+
+# Commit the submodule update
+git add .cursor/rules
+git commit -m "Update cursor rules submodule"
+```
