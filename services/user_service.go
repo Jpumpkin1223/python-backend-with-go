@@ -1,0 +1,76 @@
+package services
+
+import (
+	"fmt"
+
+	"python-backend-with-go/models"
+	"python-backend-with-go/repository"
+)
+
+// UserService handles user business logic
+type UserService struct {
+	userRepo repository.UserRepository
+}
+
+// NewUserService creates a new user service
+func NewUserService(userRepo repository.UserRepository) *UserService {
+	return &UserService{
+		userRepo: userRepo,
+	}
+}
+
+// Signup registers a new user
+func (s *UserService) Signup(req models.SignupRequest) (models.SignupResponse, error) {
+	// Validate required fields
+	if req.Name == "" || req.Email == "" || req.Password == "" {
+		return models.SignupResponse{}, fmt.Errorf("name, email, and password are required")
+	}
+
+	// Check if email already exists
+	if s.userRepo.EmailExists(req.Email) {
+		return models.SignupResponse{}, fmt.Errorf("email already exists")
+	}
+
+	// Create new user
+	userID := s.userRepo.GetNextUserID()
+	newUser := models.User{
+		ID:       userID,
+		Name:     req.Name,
+		Email:    req.Email,
+		Password: req.Password,
+		Profile:  req.Profile,
+	}
+
+	// Store user
+	if err := s.userRepo.Create(newUser); err != nil {
+		return models.SignupResponse{}, fmt.Errorf("failed to create user: %w", err)
+	}
+
+	return models.SignupResponse{
+		Message: "회원가입이 완료되었습니다.",
+		UserID:  userID,
+	}, nil
+}
+
+// GetUserByID retrieves a user by ID
+func (s *UserService) GetUserByID(id int) (models.User, error) {
+	return s.userRepo.GetByID(id)
+}
+
+// GetUsersByIDs retrieves multiple users by their IDs
+func (s *UserService) GetUsersByIDs(ids []int) ([]models.UserInfo, error) {
+	users := make([]models.UserInfo, 0, len(ids))
+	for _, id := range ids {
+		user, err := s.userRepo.GetByID(id)
+		if err != nil {
+			continue // Skip non-existent users
+		}
+		users = append(users, models.UserInfo{
+			ID:      user.ID,
+			Name:    user.Name,
+			Email:   user.Email,
+			Profile: user.Profile,
+		})
+	}
+	return users, nil
+}
