@@ -14,6 +14,12 @@ import (
 	"github.com/google/uuid"
 )
 
+var (
+	// In-memory user storage (use database in production)
+	users      = make(map[int]User)
+	nextUserID = 1
+)
+
 // ErrorResponse represents a standardized error response
 type ErrorResponse struct {
 	Error   string `json:"error"`
@@ -24,6 +30,29 @@ type ErrorResponse struct {
 type SuccessResponse struct {
 	Message string `json:"message"`
 	Status  string `json:"status"`
+}
+
+// User represents a user in the system
+type User struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Profile  string `json:"profile"`
+}
+
+// SignupRequest represents the signup request body
+type SignupRequest struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Profile  string `json:"profile"`
+}
+
+// SignupResponse represents the signup response
+type SignupResponse struct {
+	Message string `json:"message"`
+	UserID  int    `json:"user_id"`
 }
 
 func main() {
@@ -46,6 +75,7 @@ func main() {
 	mux.HandleFunc("GET /", handleRoot)
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /api/hello", handleAPIHello)
+	mux.HandleFunc("POST /api/signup", handleSignup)
 
 	// Apply middleware chain
 	handler := loggingMiddleware(recoveryMiddleware(corsMiddleware(securityHeadersMiddleware(mux))))
@@ -110,6 +140,60 @@ func handleAPIHello(w http.ResponseWriter, r *http.Request) {
 		handleError(w, err, http.StatusInternalServerError)
 		return
 	}
+}
+
+func handleSignup(w http.ResponseWriter, r *http.Request) {
+	var req SignupRequest
+
+	// Decode request body
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handleError(w, fmt.Errorf("invalid request body"), http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if req.Name == "" || req.Email == "" || req.Password == "" {
+		handleError(w, fmt.Errorf("name, email, and password are required"), http.StatusBadRequest)
+		return
+	}
+
+	// Check if email already exists
+	for _, user := range users {
+		if user.Email == req.Email {
+			handleError(w, fmt.Errorf("email already exists"), http.StatusConflict)
+			return
+		}
+	}
+
+	// Create new user
+	userID := nextUserID
+	nextUserID++
+
+	newUser := User{
+		ID:       userID,
+		Name:     req.Name,
+		Email:    req.Email,
+		Password: req.Password,
+		Profile:  req.Profile,
+	}
+
+	// Store user
+	users[userID] = newUser
+
+	// Return success response
+	response := SignupResponse{
+		Message: "회원가입이 완료되었습니다.",
+		UserID:  userID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		handleError(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("User registered successfully", "user_id", userID, "email", req.Email)
 }
 
 // Middleware

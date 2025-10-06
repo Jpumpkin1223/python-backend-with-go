@@ -57,3 +57,4 @@ curl http://localhost:8080/api/hello
 ## 개발
 
 이 프로젝트는 Go 1.19 이상에서 테스트되었습니다.
+
