@@ -18,6 +18,11 @@ var (
 	// In-memory user storage (use database in production)
 	users      = make(map[int]User)
 	nextUserID = 1
+
+	// In-memory follow relationships storage
+	follows        = make(map[string]Follow)        // key: "followerID:followingID"
+	userFollowers  = make(map[int]map[int]bool)     // key: userID, value: set of follower IDs
+	userFollowing  = make(map[int]map[int]bool)     // key: userID, value: set of following IDs
 )
 
 // ErrorResponse represents a standardized error response
@@ -41,6 +46,13 @@ type User struct {
 	Profile  string `json:"profile"`
 }
 
+// Follow represents a follow relationship
+type Follow struct {
+	FollowerID  int       `json:"follower_id"`
+	FollowingID int       `json:"following_id"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // SignupRequest represents the signup request body
 type SignupRequest struct {
 	Name     string `json:"name"`
@@ -53,6 +65,40 @@ type SignupRequest struct {
 type SignupResponse struct {
 	Message string `json:"message"`
 	UserID  int    `json:"user_id"`
+}
+
+// FollowRequest represents the follow request body
+type FollowRequest struct {
+	FollowerID int `json:"follower_id"`
+}
+
+// FollowResponse represents the follow response
+type FollowResponse struct {
+	Message     string `json:"message"`
+	FollowerID  int    `json:"follower_id"`
+	FollowingID int    `json:"following_id"`
+	CreatedAt   string `json:"created_at,omitempty"`
+}
+
+// UserInfo represents basic user information for follow lists
+type UserInfo struct {
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	Profile string `json:"profile"`
+}
+
+// FollowListResponse represents followers/following list response
+type FollowListResponse struct {
+	Users []UserInfo `json:"users"`
+	Count int        `json:"count"`
+}
+
+// FollowStatusResponse represents follow status response
+type FollowStatusResponse struct {
+	IsFollowing bool `json:"is_following"`
+	FollowerID  int  `json:"follower_id"`
+	FollowingID int  `json:"following_id"`
 }
 
 func main() {
@@ -76,6 +122,13 @@ func main() {
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /api/hello", handleAPIHello)
 	mux.HandleFunc("POST /api/signup", handleSignup)
+
+	// Follow/Unfollow routes
+	mux.HandleFunc("POST /api/users/{userID}/follow", handleFollow)
+	mux.HandleFunc("DELETE /api/users/{userID}/follow", handleUnfollow)
+	mux.HandleFunc("GET /api/users/{userID}/followers", handleGetFollowers)
+	mux.HandleFunc("GET /api/users/{userID}/following", handleGetFollowing)
+	mux.HandleFunc("GET /api/users/{userID}/follow-status", handleGetFollowStatus)
 
 	// Apply middleware chain
 	handler := loggingMiddleware(recoveryMiddleware(corsMiddleware(securityHeadersMiddleware(mux))))
@@ -194,6 +247,286 @@ func handleSignup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("User registered successfully", "user_id", userID, "email", req.Email)
+}
+
+func handleFollow(w http.ResponseWriter, r *http.Request) {
+	var req FollowRequest
+
+	// Decode request body
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handleError(w, fmt.Errorf("invalid request body"), http.StatusBadRequest)
+		return
+	}
+
+	// Get following ID from URL path
+	followingIDStr := r.PathValue("userID")
+	followingID := 0
+	if _, err := fmt.Sscanf(followingIDStr, "%d", &followingID); err != nil {
+		handleError(w, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
+		return
+	}
+
+	followerID := req.FollowerID
+
+	// Validate required fields
+	if followerID == 0 || followingID == 0 {
+		handleError(w, fmt.Errorf("follower_id and following user ID are required"), http.StatusBadRequest)
+		return
+	}
+
+	// Check if trying to follow themselves
+	if followerID == followingID {
+		handleError(w, fmt.Errorf("cannot follow yourself"), http.StatusBadRequest)
+		return
+	}
+
+	// Check if both users exist
+	if _, exists := users[followerID]; !exists {
+		handleError(w, fmt.Errorf("follower user not found"), http.StatusNotFound)
+		return
+	}
+	if _, exists := users[followingID]; !exists {
+		handleError(w, fmt.Errorf("following user not found"), http.StatusNotFound)
+		return
+	}
+
+	// Check if already following
+	followKey := fmt.Sprintf("%d:%d", followerID, followingID)
+	if _, exists := follows[followKey]; exists {
+		handleError(w, fmt.Errorf("already following this user"), http.StatusConflict)
+		return
+	}
+
+	// Create follow relationship
+	now := time.Now()
+	follow := Follow{
+		FollowerID:  followerID,
+		FollowingID: followingID,
+		CreatedAt:   now,
+	}
+
+	// Store follow relationship
+	follows[followKey] = follow
+
+	// Update indexes
+	if userFollowers[followingID] == nil {
+		userFollowers[followingID] = make(map[int]bool)
+	}
+	userFollowers[followingID][followerID] = true
+
+	if userFollowing[followerID] == nil {
+		userFollowing[followerID] = make(map[int]bool)
+	}
+	userFollowing[followerID][followingID] = true
+
+	// Return success response
+	response := FollowResponse{
+		Message:     "팔로우 성공",
+		FollowerID:  followerID,
+		FollowingID: followingID,
+		CreatedAt:   now.Format(time.RFC3339),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		handleError(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("Follow created", "follower_id", followerID, "following_id", followingID)
+}
+
+func handleUnfollow(w http.ResponseWriter, r *http.Request) {
+	var req FollowRequest
+
+	// Decode request body
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handleError(w, fmt.Errorf("invalid request body"), http.StatusBadRequest)
+		return
+	}
+
+	// Get following ID from URL path
+	followingIDStr := r.PathValue("userID")
+	followingID := 0
+	if _, err := fmt.Sscanf(followingIDStr, "%d", &followingID); err != nil {
+		handleError(w, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
+		return
+	}
+
+	followerID := req.FollowerID
+
+	// Validate required fields
+	if followerID == 0 || followingID == 0 {
+		handleError(w, fmt.Errorf("follower_id and following user ID are required"), http.StatusBadRequest)
+		return
+	}
+
+	// Check if follow relationship exists
+	followKey := fmt.Sprintf("%d:%d", followerID, followingID)
+	if _, exists := follows[followKey]; !exists {
+		handleError(w, fmt.Errorf("follow relationship not found"), http.StatusNotFound)
+		return
+	}
+
+	// Delete follow relationship
+	delete(follows, followKey)
+
+	// Update indexes
+	if userFollowers[followingID] != nil {
+		delete(userFollowers[followingID], followerID)
+	}
+	if userFollowing[followerID] != nil {
+		delete(userFollowing[followerID], followingID)
+	}
+
+	// Return success response
+	response := FollowResponse{
+		Message:     "언팔로우 성공",
+		FollowerID:  followerID,
+		FollowingID: followingID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		handleError(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("Follow deleted", "follower_id", followerID, "following_id", followingID)
+}
+
+func handleGetFollowers(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from URL path
+	userIDStr := r.PathValue("userID")
+	userID := 0
+	if _, err := fmt.Sscanf(userIDStr, "%d", &userID); err != nil {
+		handleError(w, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
+		return
+	}
+
+	// Check if user exists
+	if _, exists := users[userID]; !exists {
+		handleError(w, fmt.Errorf("user not found"), http.StatusNotFound)
+		return
+	}
+
+	// Get followers
+	followerIDs := userFollowers[userID]
+	userInfos := make([]UserInfo, 0, len(followerIDs))
+
+	for followerID := range followerIDs {
+		if user, exists := users[followerID]; exists {
+			userInfos = append(userInfos, UserInfo{
+				ID:      user.ID,
+				Name:    user.Name,
+				Email:   user.Email,
+				Profile: user.Profile,
+			})
+		}
+	}
+
+	response := FollowListResponse{
+		Users: userInfos,
+		Count: len(userInfos),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		handleError(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("Followers retrieved", "user_id", userID, "count", len(userInfos))
+}
+
+func handleGetFollowing(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from URL path
+	userIDStr := r.PathValue("userID")
+	userID := 0
+	if _, err := fmt.Sscanf(userIDStr, "%d", &userID); err != nil {
+		handleError(w, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
+		return
+	}
+
+	// Check if user exists
+	if _, exists := users[userID]; !exists {
+		handleError(w, fmt.Errorf("user not found"), http.StatusNotFound)
+		return
+	}
+
+	// Get following
+	followingIDs := userFollowing[userID]
+	userInfos := make([]UserInfo, 0, len(followingIDs))
+
+	for followingID := range followingIDs {
+		if user, exists := users[followingID]; exists {
+			userInfos = append(userInfos, UserInfo{
+				ID:      user.ID,
+				Name:    user.Name,
+				Email:   user.Email,
+				Profile: user.Profile,
+			})
+		}
+	}
+
+	response := FollowListResponse{
+		Users: userInfos,
+		Count: len(userInfos),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		handleError(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("Following retrieved", "user_id", userID, "count", len(userInfos))
+}
+
+func handleGetFollowStatus(w http.ResponseWriter, r *http.Request) {
+	// Get following ID from URL path
+	followingIDStr := r.PathValue("userID")
+	followingID := 0
+	if _, err := fmt.Sscanf(followingIDStr, "%d", &followingID); err != nil {
+		handleError(w, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
+		return
+	}
+
+	// Get follower ID from query parameter
+	followerIDStr := r.URL.Query().Get("follower_id")
+	if followerIDStr == "" {
+		handleError(w, fmt.Errorf("follower_id query parameter is required"), http.StatusBadRequest)
+		return
+	}
+
+	followerID := 0
+	if _, err := fmt.Sscanf(followerIDStr, "%d", &followerID); err != nil {
+		handleError(w, fmt.Errorf("invalid follower_id"), http.StatusBadRequest)
+		return
+	}
+
+	// Check if follow relationship exists
+	followKey := fmt.Sprintf("%d:%d", followerID, followingID)
+	_, isFollowing := follows[followKey]
+
+	response := FollowStatusResponse{
+		IsFollowing: isFollowing,
+		FollowerID:  followerID,
+		FollowingID: followingID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		handleError(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("Follow status checked", "follower_id", followerID, "following_id", followingID, "is_following", isFollowing)
 }
 
 // Middleware
