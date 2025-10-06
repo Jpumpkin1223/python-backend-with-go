@@ -30,14 +30,17 @@ func main() {
 	// Initialize repositories
 	userRepo := repository.NewInMemoryUserRepository()
 	followRepo := repository.NewInMemoryFollowRepository()
+	postRepo := repository.NewInMemoryPostRepository()
 
 	// Initialize services
 	userService := services.NewUserService(userRepo)
 	followService := services.NewFollowService(followRepo, userRepo)
+	postService := services.NewPostService(postRepo, userRepo, followRepo)
 
 	// Initialize handlers
 	userHandler := handlers.NewUserHandler(userService)
 	followHandler := handlers.NewFollowHandler(followService)
+	postHandler := handlers.NewPostHandler(postService)
 
 	// Create new ServeMux (Go 1.22+ with enhanced routing)
 	mux := http.NewServeMux()
@@ -54,6 +57,13 @@ func main() {
 	mux.HandleFunc("GET /api/users/{userID}/followers", followHandler.HandleGetFollowers)
 	mux.HandleFunc("GET /api/users/{userID}/following", followHandler.HandleGetFollowing)
 	mux.HandleFunc("GET /api/users/{userID}/follow-status", followHandler.HandleGetFollowStatus)
+
+	// Post routes
+	mux.HandleFunc("POST /api/posts", postHandler.HandleCreatePost)
+	mux.HandleFunc("PUT /api/posts/{postID}", postHandler.HandleUpdatePost)
+	mux.HandleFunc("DELETE /api/posts/{postID}", postHandler.HandleDeletePost)
+	mux.HandleFunc("GET /api/users/{userID}/posts", postHandler.HandleGetUserPosts)
+	mux.HandleFunc("GET /api/users/{userID}/timeline", postHandler.HandleGetTimeline)
 
 	// Apply middleware chain
 	handler := handlers.LoggingMiddleware(

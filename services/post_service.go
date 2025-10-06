@@ -1,0 +1,214 @@
+package services
+
+import (
+	"fmt"
+	"time"
+	"unicode/utf8"
+
+	"python-backend-with-go/models"
+	"python-backend-with-go/repository"
+)
+
+const MaxPostContentLength = 300
+
+// PostService handles post business logic
+type PostService struct {
+	postRepo   repository.PostRepository
+	userRepo   repository.UserRepository
+	followRepo repository.FollowRepository
+}
+
+// NewPostService creates a new post service
+func NewPostService(postRepo repository.PostRepository, userRepo repository.UserRepository, followRepo repository.FollowRepository) *PostService {
+	return &PostService{
+		postRepo:   postRepo,
+		userRepo:   userRepo,
+		followRepo: followRepo,
+	}
+}
+
+// CreatePost creates a new post
+func (s *PostService) CreatePost(req models.CreatePostRequest) (models.CreatePostResponse, error) {
+	// Validate user ID
+	if req.UserID == 0 {
+		return models.CreatePostResponse{}, fmt.Errorf("user_id is required")
+	}
+
+	// Check if user exists
+	if _, err := s.userRepo.GetByID(req.UserID); err != nil {
+		return models.CreatePostResponse{}, fmt.Errorf("user not found")
+	}
+
+	// Validate content
+	if req.Content == "" {
+		return models.CreatePostResponse{}, fmt.Errorf("content is required")
+	}
+
+	// Check content length (300 characters limit)
+	if utf8.RuneCountInString(req.Content) > MaxPostContentLength {
+		return models.CreatePostResponse{}, fmt.Errorf("content must be %d characters or less", MaxPostContentLength)
+	}
+
+	// Create post
+	now := time.Now()
+	postID := s.postRepo.GetNextPostID()
+	post := models.Post{
+		ID:        postID,
+		UserID:    req.UserID,
+		Content:   req.Content,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if err := s.postRepo.Create(post); err != nil {
+		return models.CreatePostResponse{}, fmt.Errorf("failed to create post: %w", err)
+	}
+
+	return models.CreatePostResponse{
+		Message: "게시글이 생성되었습니다.",
+		PostID:  postID,
+		Post:    post,
+	}, nil
+}
+
+// UpdatePost updates a post
+func (s *PostService) UpdatePost(postID int, req models.UpdatePostRequest) (models.UpdatePostResponse, error) {
+	// Validate IDs
+	if postID == 0 || req.UserID == 0 {
+		return models.UpdatePostResponse{}, fmt.Errorf("post_id and user_id are required")
+	}
+
+	// Validate content
+	if req.Content == "" {
+		return models.UpdatePostResponse{}, fmt.Errorf("content is required")
+	}
+
+	// Check content length (300 characters limit)
+	if utf8.RuneCountInString(req.Content) > MaxPostContentLength {
+		return models.UpdatePostResponse{}, fmt.Errorf("content must be %d characters or less", MaxPostContentLength)
+	}
+
+	// Get post
+	post, err := s.postRepo.GetByID(postID)
+	if err != nil {
+		return models.UpdatePostResponse{}, fmt.Errorf("post not found")
+	}
+
+	// Check authorization (only post owner can update)
+	if post.UserID != req.UserID {
+		return models.UpdatePostResponse{}, fmt.Errorf("unauthorized to update this post")
+	}
+
+	// Update post
+	post.Content = req.Content
+	post.UpdatedAt = time.Now()
+
+	if err := s.postRepo.Update(post); err != nil {
+		return models.UpdatePostResponse{}, fmt.Errorf("failed to update post: %w", err)
+	}
+
+	return models.UpdatePostResponse{
+		Message: "게시글이 수정되었습니다.",
+		PostID:  postID,
+		Post:    post,
+	}, nil
+}
+
+// DeletePost deletes a post
+func (s *PostService) DeletePost(postID int, userID int) (models.DeletePostResponse, error) {
+	// Validate IDs
+	if postID == 0 || userID == 0 {
+		return models.DeletePostResponse{}, fmt.Errorf("post_id and user_id are required")
+	}
+
+	// Get post
+	post, err := s.postRepo.GetByID(postID)
+	if err != nil {
+		return models.DeletePostResponse{}, fmt.Errorf("post not found")
+	}
+
+	// Check authorization (only post owner can delete)
+	if post.UserID != userID {
+		return models.DeletePostResponse{}, fmt.Errorf("unauthorized to delete this post")
+	}
+
+	// Delete post
+	if err := s.postRepo.Delete(postID); err != nil {
+		return models.DeletePostResponse{}, fmt.Errorf("failed to delete post: %w", err)
+	}
+
+	return models.DeletePostResponse{
+		Message: "게시글이 삭제되었습니다.",
+		PostID:  postID,
+	}, nil
+}
+
+// GetUserPosts retrieves posts by a specific user
+func (s *PostService) GetUserPosts(userID int) (models.UserPostsResponse, error) {
+	// Check if user exists
+	if _, err := s.userRepo.GetByID(userID); err != nil {
+		return models.UserPostsResponse{}, fmt.Errorf("user not found")
+	}
+
+	// Get user's posts
+	posts, err := s.postRepo.GetByUserID(userID)
+	if err != nil {
+		return models.UserPostsResponse{}, fmt.Errorf("failed to get posts: %w", err)
+	}
+
+	return models.UserPostsResponse{
+		Posts: posts,
+		Count: len(posts),
+	}, nil
+}
+
+// GetTimeline retrieves timeline for a user (posts from followed users)
+func (s *PostService) GetTimeline(userID int) (models.TimelineResponse, error) {
+	// Check if user exists
+	if _, err := s.userRepo.GetByID(userID); err != nil {
+		return models.TimelineResponse{}, fmt.Errorf("user not found")
+	}
+
+	// Get users that this user follows
+	followingIDs, err := s.followRepo.GetFollowing(userID)
+	if err != nil {
+		return models.TimelineResponse{}, fmt.Errorf("failed to get following: %w", err)
+	}
+
+	// If not following anyone, return empty timeline
+	if len(followingIDs) == 0 {
+		return models.TimelineResponse{
+			Posts: []models.PostWithUser{},
+			Count: 0,
+		}, nil
+	}
+
+	// Get posts from followed users
+	posts, err := s.postRepo.GetByUserIDs(followingIDs)
+	if err != nil {
+		return models.TimelineResponse{}, fmt.Errorf("failed to get posts: %w", err)
+	}
+
+	// Convert to PostWithUser
+	postsWithUser := make([]models.PostWithUser, 0, len(posts))
+	for _, post := range posts {
+		user, err := s.userRepo.GetByID(post.UserID)
+		if err != nil {
+			continue // Skip if user not found
+		}
+
+		postsWithUser = append(postsWithUser, models.PostWithUser{
+			ID:        post.ID,
+			UserID:    post.UserID,
+			UserName:  user.Name,
+			Content:   post.Content,
+			CreatedAt: post.CreatedAt,
+			UpdatedAt: post.UpdatedAt,
+		})
+	}
+
+	return models.TimelineResponse{
+		Posts: postsWithUser,
+		Count: len(postsWithUser),
+	}, nil
+}
