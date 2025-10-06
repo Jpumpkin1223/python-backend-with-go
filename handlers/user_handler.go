@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
+	"log/slog"
 	"python-backend-with-go/models"
 	"python-backend-with-go/services"
-	"log/slog"
 )
 
 // UserHandler handles user-related HTTP requests

@@ -7,7 +7,7 @@ import (
 	"python-backend-with-go/repository"
 )
 
-func setupFollowServiceTest(t *testing.T) (*FollowService, *UserService) {
+func setupFollowServiceTest(_ *testing.T) (*FollowService, *UserService) {
 	userRepo := repository.NewInMemoryUserRepository()
 	followRepo := repository.NewInMemoryFollowRepository()
 	userService := NewUserService(userRepo)
