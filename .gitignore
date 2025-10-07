@@ -43,8 +43,17 @@ Thumbs.db
 .env.test.local
 .env.production.local
 
+# MySQL credentials
+.my.cnf
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
 # Build output
 dist/
 build/
 server
+
 
