@@ -48,11 +48,13 @@ func main() {
 
 	// Initialize services
 	userService := services.NewUserService(userRepo)
+	authService := services.NewAuthService(userRepo)
 	followService := services.NewFollowService(followRepo, userRepo)
 	postService := services.NewPostService(postRepo, userRepo, followRepo)
 
 	// Initialize handlers
 	userHandler := handlers.NewUserHandler(userService)
+	authHandler := handlers.NewAuthHandler(authService)
 	followHandler := handlers.NewFollowHandler(followService)
 	postHandler := handlers.NewPostHandler(postService)
 
@@ -60,22 +62,27 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Register routes with method-specific handlers
+	// Public routes
 	mux.HandleFunc("GET /", handlers.HandleRoot)
 	mux.HandleFunc("GET /health", handlers.HandleHealth)
 	mux.HandleFunc("GET /api/hello", handlers.HandleAPIHello)
 	mux.HandleFunc("POST /api/signup", userHandler.HandleSignup)
+	mux.HandleFunc("POST /api/login", authHandler.HandleLogin)
+
+	// Protected routes (require authentication)
+	authMiddleware := handlers.AuthMiddleware(authService)
 
 	// Follow/Unfollow routes
-	mux.HandleFunc("POST /api/users/{userID}/follow", followHandler.HandleFollow)
-	mux.HandleFunc("DELETE /api/users/{userID}/follow", followHandler.HandleUnfollow)
+	mux.Handle("POST /api/users/{userID}/follow", authMiddleware(http.HandlerFunc(followHandler.HandleFollow)))
+	mux.Handle("DELETE /api/users/{userID}/follow", authMiddleware(http.HandlerFunc(followHandler.HandleUnfollow)))
 	mux.HandleFunc("GET /api/users/{userID}/followers", followHandler.HandleGetFollowers)
 	mux.HandleFunc("GET /api/users/{userID}/following", followHandler.HandleGetFollowing)
 	mux.HandleFunc("GET /api/users/{userID}/follow-status", followHandler.HandleGetFollowStatus)
 
 	// Post routes
-	mux.HandleFunc("POST /api/posts", postHandler.HandleCreatePost)
-	mux.HandleFunc("PUT /api/posts/{postID}", postHandler.HandleUpdatePost)
-	mux.HandleFunc("DELETE /api/posts/{postID}", postHandler.HandleDeletePost)
+	mux.Handle("POST /api/posts", authMiddleware(http.HandlerFunc(postHandler.HandleCreatePost)))
+	mux.Handle("PUT /api/posts/{postID}", authMiddleware(http.HandlerFunc(postHandler.HandleUpdatePost)))
+	mux.Handle("DELETE /api/posts/{postID}", authMiddleware(http.HandlerFunc(postHandler.HandleDeletePost)))
 	mux.HandleFunc("GET /api/users/{userID}/posts", postHandler.HandleGetUserPosts)
 	mux.HandleFunc("GET /api/users/{userID}/timeline", postHandler.HandleGetTimeline)
 

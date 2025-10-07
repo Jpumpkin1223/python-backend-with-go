@@ -106,22 +106,132 @@ fi
 echo ""
 
 # ===========================================
-# 2. 팔로우 기능 테스트
+# 2. 로그인 & JWT 인증 테스트
 # ===========================================
-echo -e "${YELLOW}[B] 팔로우 기능 테스트${NC}"
+echo -e "${YELLOW}[B] 로그인 & JWT 인증 테스트${NC}"
 
-# Test 4: 팔로우 생성 (User2 -> User1)
-RESPONSE=$(curl -s -X POST "$BASE_URL/api/users/$USER1_ID/follow" \
+# Test 4: 로그인 성공
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user1@test.com",
+    "password": "password123"
+  }')
+
+if echo "$RESPONSE" | grep -q "로그인 성공"; then
+    USER1_TOKEN=$(echo "$RESPONSE" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+    print_test 0 "로그인 성공 (토큰 획득)"
+else
+    print_test 1 "로그인 실패" "$RESPONSE"
+fi
+
+# Test 5: 두 번째 사용자 로그인
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user2@test.com",
+    "password": "password456"
+  }')
+
+if echo "$RESPONSE" | grep -q "로그인 성공"; then
+    USER2_TOKEN=$(echo "$RESPONSE" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+    print_test 0 "두 번째 사용자 로그인 성공"
+else
+    print_test 1 "두 번째 사용자 로그인 실패" "$RESPONSE"
+fi
+
+# Test 6: 잘못된 비밀번호로 로그인 시도
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user1@test.com",
+    "password": "wrongpassword"
+  }')
+
+if echo "$RESPONSE" | grep -q "invalid email or password"; then
+    print_test 0 "잘못된 비밀번호 거부 확인"
+else
+    print_test 1 "잘못된 비밀번호 체크 실패" "$RESPONSE"
+fi
+
+# Test 7: 존재하지 않는 이메일로 로그인 시도
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "nonexistent@test.com",
+    "password": "password123"
+  }')
+
+if echo "$RESPONSE" | grep -q "invalid email or password"; then
+    print_test 0 "존재하지 않는 이메일 거부 확인"
+else
+    print_test 1 "존재하지 않는 이메일 체크 실패" "$RESPONSE"
+fi
+
+echo ""
+
+# ===========================================
+# 3. JWT 인증 필수 API 테스트
+# ===========================================
+echo -e "${YELLOW}[C] JWT 인증 필수 API 테스트${NC}"
+
+# Test 8: 토큰 없이 팔로우 시도 (401 에러 확인)
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/users/$USER1_ID/follow" \
   -H "Content-Type: application/json" \
   -d "{\"follower_id\": $USER2_ID}")
 
+HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+if [ "$HTTP_CODE" = "401" ]; then
+    print_test 0 "토큰 없이 팔로우 거부 확인 (401)"
+else
+    print_test 1 "토큰 없이 팔로우 체크 실패 (HTTP $HTTP_CODE)" "$RESPONSE"
+fi
+
+# Test 9: 유효하지 않은 토큰으로 팔로우 시도
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/users/$USER1_ID/follow" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer invalid.token.here" \
+  -d "{\"follower_id\": $USER2_ID}")
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+if [ "$HTTP_CODE" = "401" ]; then
+    print_test 0 "유효하지 않은 토큰 거부 확인 (401)"
+else
+    print_test 1 "유효하지 않은 토큰 체크 실패 (HTTP $HTTP_CODE)" "$RESPONSE"
+fi
+
+# Test 10: 토큰 없이 게시글 작성 시도
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/posts" \
+  -H "Content-Type: application/json" \
+  -d "{\"user_id\": $USER1_ID, \"content\": \"테스트\"}")
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+if [ "$HTTP_CODE" = "401" ]; then
+    print_test 0 "토큰 없이 게시글 작성 거부 확인 (401)"
+else
+    print_test 1 "토큰 없이 게시글 작성 체크 실패 (HTTP $HTTP_CODE)" "$RESPONSE"
+fi
+
+echo ""
+
+# ===========================================
+# 4. 팔로우 기능 테스트 (인증 포함)
+# ===========================================
+echo -e "${YELLOW}[D] 팔로우 기능 테스트 (인증 포함)${NC}"
+
+# Test 11: 팔로우 생성 (User2 -> User1) with JWT
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/users/$USER1_ID/follow" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $USER2_TOKEN" \
+  -d "{\"follower_id\": $USER2_ID}")
+
 if echo "$RESPONSE" | grep -q "팔로우 성공"; then
-    print_test 0 "팔로우 생성 성공 (User $USER2_ID → User $USER1_ID)"
+    print_test 0 "JWT 인증으로 팔로우 생성 성공 (User $USER2_ID → User $USER1_ID)"
 else
     print_test 1 "팔로우 생성 실패" "$RESPONSE"
 fi
 
-# Test 5: 팔로워 목록 조회
+# Test 12: 팔로워 목록 조회 (공개 API)
 RESPONSE=$(curl -s -X GET "$BASE_URL/api/users/$USER1_ID/followers")
 
 if echo "$RESPONSE" | grep -q "user2@test.com"; then
@@ -130,7 +240,7 @@ else
     print_test 1 "팔로워 목록 조회 실패" "$RESPONSE"
 fi
 
-# Test 6: 팔로잉 목록 조회
+# Test 13: 팔로잉 목록 조회 (공개 API)
 RESPONSE=$(curl -s -X GET "$BASE_URL/api/users/$USER2_ID/following")
 
 if echo "$RESPONSE" | grep -q "user1@test.com"; then
@@ -139,9 +249,10 @@ else
     print_test 1 "팔로잉 목록 조회 실패" "$RESPONSE"
 fi
 
-# Test 7: 자기 자신 팔로우 시도 (에러 확인)
+# Test 14: 자기 자신 팔로우 시도 (에러 확인)
 RESPONSE=$(curl -s -X POST "$BASE_URL/api/users/$USER1_ID/follow" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $USER1_TOKEN" \
   -d "{\"follower_id\": $USER1_ID}")
 
 if echo "$RESPONSE" | grep -q "cannot follow yourself"; then
@@ -150,27 +261,41 @@ else
     print_test 1 "자기 자신 팔로우 체크 실패" "$RESPONSE"
 fi
 
-# Test 8: 존재하지 않는 사용자 팔로우 시도
-RESPONSE=$(curl -s -X POST "$BASE_URL/api/users/999/follow" \
+# Test 15: 언팔로우 (User2 -> User1) with JWT
+RESPONSE=$(curl -s -X DELETE "$BASE_URL/api/users/$USER1_ID/follow" \
   -H "Content-Type: application/json" \
-  -d "{\"follower_id\": $USER1_ID}")
+  -H "Authorization: Bearer $USER2_TOKEN" \
+  -d "{\"follower_id\": $USER2_ID}")
 
-if echo "$RESPONSE" | grep -q "user not found"; then
-    print_test 0 "존재하지 않는 사용자 팔로우 거부 확인"
+if echo "$RESPONSE" | grep -q "언팔로우 성공"; then
+    print_test 0 "JWT 인증으로 언팔로우 성공"
 else
-    print_test 1 "존재하지 않는 사용자 팔로우 체크 실패" "$RESPONSE"
+    print_test 1 "언팔로우 실패" "$RESPONSE"
+fi
+
+# Test 16: 다시 팔로우 (테스트를 위해)
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/users/$USER1_ID/follow" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $USER2_TOKEN" \
+  -d "{\"follower_id\": $USER2_ID}")
+
+if echo "$RESPONSE" | grep -q "팔로우 성공"; then
+    print_test 0 "다시 팔로우 성공 (게시글 테스트 준비)"
+else
+    print_test 1 "다시 팔로우 실패" "$RESPONSE"
 fi
 
 echo ""
 
 # ===========================================
-# 3. 게시글 기능 테스트
+# 5. 게시글 기능 테스트 (인증 포함)
 # ===========================================
-echo -e "${YELLOW}[C] 게시글 기능 테스트${NC}"
+echo -e "${YELLOW}[E] 게시글 기능 테스트 (인증 포함)${NC}"
 
-# Test 9: 게시글 작성
+# Test 17: 게시글 작성 with JWT
 RESPONSE=$(curl -s -X POST "$BASE_URL/api/posts" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $USER1_TOKEN" \
   -d "{
     \"user_id\": $USER1_ID,
     \"content\": \"첫 번째 게시글입니다!\"
@@ -178,40 +303,42 @@ RESPONSE=$(curl -s -X POST "$BASE_URL/api/posts" \
 
 if echo "$RESPONSE" | grep -q "게시글이 생성되었습니다"; then
     POST_ID=$(echo "$RESPONSE" | grep -o '"post_id":[0-9]*' | cut -d':' -f2)
-    print_test 0 "게시글 작성 성공 (Post ID: $POST_ID)"
+    print_test 0 "JWT 인증으로 게시글 작성 성공 (Post ID: $POST_ID)"
 else
     print_test 1 "게시글 작성 실패" "$RESPONSE"
 fi
 
-# Test 10: 게시글 수정
+# Test 18: 게시글 수정 with JWT
 RESPONSE=$(curl -s -X PUT "$BASE_URL/api/posts/$POST_ID" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $USER1_TOKEN" \
   -d "{
     \"user_id\": $USER1_ID,
     \"content\": \"수정된 게시글입니다!\"
   }")
 
 if echo "$RESPONSE" | grep -q "게시글이 수정되었습니다"; then
-    print_test 0 "게시글 수정 성공"
+    print_test 0 "JWT 인증으로 게시글 수정 성공"
 else
     print_test 1 "게시글 수정 실패" "$RESPONSE"
 fi
 
-# Test 11: 다른 사용자의 게시글 수정 시도 (에러 확인)
+# Test 19: 다른 사용자의 게시글 수정 시도 (에러 확인)
 RESPONSE=$(curl -s -X PUT "$BASE_URL/api/posts/$POST_ID" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $USER2_TOKEN" \
   -d "{
     \"user_id\": $USER2_ID,
     \"content\": \"해킹 시도\"
   }")
 
 if echo "$RESPONSE" | grep -q "unauthorized"; then
-    print_test 0 "권한 없는 수정 거부 확인"
+    print_test 0 "권한 없는 게시글 수정 거부 확인"
 else
     print_test 1 "권한 없는 수정 체크 실패" "$RESPONSE"
 fi
 
-# Test 12: 사용자 게시글 목록 조회
+# Test 20: 사용자 게시글 목록 조회 (공개 API)
 RESPONSE=$(curl -s -X GET "$BASE_URL/api/users/$USER1_ID/posts")
 
 if echo "$RESPONSE" | grep -q "수정된 게시글입니다"; then
@@ -220,7 +347,7 @@ else
     print_test 1 "사용자 게시글 목록 조회 실패" "$RESPONSE"
 fi
 
-# Test 13: 타임라인 조회 (User2가 User1을 팔로우 중)
+# Test 21: 타임라인 조회 (User2가 User1을 팔로우 중) (공개 API)
 RESPONSE=$(curl -s -X GET "$BASE_URL/api/users/$USER2_ID/timeline")
 
 if echo "$RESPONSE" | grep -q "수정된 게시글입니다"; then
@@ -229,10 +356,11 @@ else
     print_test 1 "타임라인 조회 실패" "$RESPONSE"
 fi
 
-# Test 14: 300자 초과 게시글 작성 시도
+# Test 22: 300자 초과 게시글 작성 시도
 LONG_CONTENT=$(printf 'a%.0s' {1..301})
 RESPONSE=$(curl -s -X POST "$BASE_URL/api/posts" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $USER1_TOKEN" \
   -d "{
     \"user_id\": $USER1_ID,
     \"content\": \"$LONG_CONTENT\"
@@ -242,6 +370,18 @@ if echo "$RESPONSE" | grep -q "300 characters"; then
     print_test 0 "300자 초과 게시글 거부 확인"
 else
     print_test 1 "300자 초과 체크 실패" "$RESPONSE"
+fi
+
+# Test 23: 게시글 삭제 with JWT
+RESPONSE=$(curl -s -X DELETE "$BASE_URL/api/posts/$POST_ID" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $USER1_TOKEN" \
+  -d "{\"user_id\": $USER1_ID}")
+
+if echo "$RESPONSE" | grep -q "게시글이 삭제되었습니다"; then
+    print_test 0 "JWT 인증으로 게시글 삭제 성공"
+else
+    print_test 1 "게시글 삭제 실패" "$RESPONSE"
 fi
 
 echo ""

@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"python-backend-with-go/services"
 )
 
 // LoggingMiddleware logs HTTP requests
@@ -95,4 +97,42 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// AuthMiddleware validates JWT tokens and authenticates requests
+func AuthMiddleware(authService *services.AuthService) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Extract token from Authorization header
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				handleError(w, fmt.Errorf("authorization header required"), http.StatusUnauthorized)
+				return
+			}
+
+			// Check if it's a Bearer token
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				handleError(w, fmt.Errorf("invalid authorization header format"), http.StatusUnauthorized)
+				return
+			}
+
+			tokenString := parts[1]
+
+			// Validate token
+			claims, err := authService.ValidateToken(tokenString)
+			if err != nil {
+				slog.Warn("Token validation failed", "error", err)
+				handleError(w, fmt.Errorf("invalid or expired token"), http.StatusUnauthorized)
+				return
+			}
+
+			// Add user_id to request context
+			ctx := context.WithValue(r.Context(), "user_id", claims.UserID)
+			ctx = context.WithValue(ctx, "user_email", claims.Email)
+			r = r.WithContext(ctx)
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
