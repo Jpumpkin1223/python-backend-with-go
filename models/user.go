@@ -4,18 +4,26 @@ import "time"
 
 // User represents a user in the system
 type User struct {
-	ID       int    `json:"id"`
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Profile  string `json:"profile"`
+	ID             int       `json:"id" gorm:"primaryKey;autoIncrement"`
+	Name           string    `json:"name" gorm:"type:varchar(255);not null"`
+	Email          string    `json:"email" gorm:"type:varchar(255);uniqueIndex;not null"`
+	HashedPassword string    `json:"-" gorm:"column:hashed_password;type:varchar(255);not null"`
+	Password       string    `json:"password,omitempty" gorm:"-"` // For request handling only
+	Profile        string    `json:"profile" gorm:"type:varchar(2000);not null"`
+	CreatedAt      time.Time `json:"created_at" gorm:"not null;autoCreateTime"`
+	UpdatedAt      time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // Follow represents a follow relationship
 type Follow struct {
-	FollowerID  int       `json:"follower_id"`
-	FollowingID int       `json:"following_id"`
-	CreatedAt   time.Time `json:"created_at"`
+	UserID       int       `json:"user_id" gorm:"primaryKey;column:user_id"`
+	FollowUserID int       `json:"follow_user_id" gorm:"primaryKey;column:follow_user_id"`
+	CreatedAt    time.Time `json:"created_at" gorm:"not null;autoCreateTime"`
+}
+
+// TableName overrides the table name for Follow model
+func (Follow) TableName() string {
+	return "users_follow_list"
 }
 
 // SignupRequest represents the signup request body

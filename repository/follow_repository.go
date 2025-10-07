@@ -4,16 +4,81 @@ import (
 	"fmt"
 	"sync"
 
+	"gorm.io/gorm"
 	"python-backend-with-go/models"
 )
 
 // FollowRepository defines the interface for follow data operations
 type FollowRepository interface {
 	Create(follow models.Follow) error
-	Delete(followerID, followingID int) error
-	Exists(followerID, followingID int) bool
+	Delete(userID, followUserID int) error
+	Exists(userID, followUserID int) bool
 	GetFollowers(userID int) ([]int, error)
 	GetFollowing(userID int) ([]int, error)
+}
+
+// GormFollowRepository implements FollowRepository using GORM
+type GormFollowRepository struct {
+	db *gorm.DB
+}
+
+// NewGormFollowRepository creates a new GORM follow repository
+func NewGormFollowRepository(db *gorm.DB) *GormFollowRepository {
+	return &GormFollowRepository{db: db}
+}
+
+// Create adds a new follow relationship
+func (r *GormFollowRepository) Create(follow models.Follow) error {
+	return r.db.Create(&follow).Error
+}
+
+// Delete removes a follow relationship
+func (r *GormFollowRepository) Delete(userID, followUserID int) error {
+	result := r.db.Where("user_id = ? AND follow_user_id = ?", userID, followUserID).Delete(&models.Follow{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("follow relationship not found")
+	}
+	return nil
+}
+
+// Exists checks if a follow relationship exists
+func (r *GormFollowRepository) Exists(userID, followUserID int) bool {
+	var count int64
+	r.db.Model(&models.Follow{}).Where("user_id = ? AND follow_user_id = ?", userID, followUserID).Count(&count)
+	return count > 0
+}
+
+// GetFollowers returns the list of follower IDs for a user
+func (r *GormFollowRepository) GetFollowers(userID int) ([]int, error) {
+	var follows []models.Follow
+	err := r.db.Where("follow_user_id = ?", userID).Find(&follows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	followerIDs := make([]int, len(follows))
+	for i, follow := range follows {
+		followerIDs[i] = follow.UserID
+	}
+	return followerIDs, nil
+}
+
+// GetFollowing returns the list of following IDs for a user
+func (r *GormFollowRepository) GetFollowing(userID int) ([]int, error) {
+	var follows []models.Follow
+	err := r.db.Where("user_id = ?", userID).Find(&follows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	followingIDs := make([]int, len(follows))
+	for i, follow := range follows {
+		followingIDs[i] = follow.FollowUserID
+	}
+	return followingIDs, nil
 }
 
 // InMemoryFollowRepository implements FollowRepository using in-memory storage
@@ -38,29 +103,29 @@ func (r *InMemoryFollowRepository) Create(follow models.Follow) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	followKey := fmt.Sprintf("%d:%d", follow.FollowerID, follow.FollowingID)
+	followKey := fmt.Sprintf("%d:%d", follow.UserID, follow.FollowUserID)
 	r.follows[followKey] = follow
 
 	// Update indexes
-	if r.userFollowers[follow.FollowingID] == nil {
-		r.userFollowers[follow.FollowingID] = make(map[int]bool)
+	if r.userFollowers[follow.FollowUserID] == nil {
+		r.userFollowers[follow.FollowUserID] = make(map[int]bool)
 	}
-	r.userFollowers[follow.FollowingID][follow.FollowerID] = true
+	r.userFollowers[follow.FollowUserID][follow.UserID] = true
 
-	if r.userFollowing[follow.FollowerID] == nil {
-		r.userFollowing[follow.FollowerID] = make(map[int]bool)
+	if r.userFollowing[follow.UserID] == nil {
+		r.userFollowing[follow.UserID] = make(map[int]bool)
 	}
-	r.userFollowing[follow.FollowerID][follow.FollowingID] = true
+	r.userFollowing[follow.UserID][follow.FollowUserID] = true
 
 	return nil
 }
 
 // Delete removes a follow relationship
-func (r *InMemoryFollowRepository) Delete(followerID, followingID int) error {
+func (r *InMemoryFollowRepository) Delete(userID, followUserID int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	followKey := fmt.Sprintf("%d:%d", followerID, followingID)
+	followKey := fmt.Sprintf("%d:%d", userID, followUserID)
 	if _, exists := r.follows[followKey]; !exists {
 		return fmt.Errorf("follow relationship not found")
 	}
@@ -68,22 +133,22 @@ func (r *InMemoryFollowRepository) Delete(followerID, followingID int) error {
 	delete(r.follows, followKey)
 
 	// Update indexes
-	if r.userFollowers[followingID] != nil {
-		delete(r.userFollowers[followingID], followerID)
+	if r.userFollowers[followUserID] != nil {
+		delete(r.userFollowers[followUserID], userID)
 	}
-	if r.userFollowing[followerID] != nil {
-		delete(r.userFollowing[followerID], followingID)
+	if r.userFollowing[userID] != nil {
+		delete(r.userFollowing[userID], followUserID)
 	}
 
 	return nil
 }
 
 // Exists checks if a follow relationship exists
-func (r *InMemoryFollowRepository) Exists(followerID, followingID int) bool {
+func (r *InMemoryFollowRepository) Exists(userID, followUserID int) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	followKey := fmt.Sprintf("%d:%d", followerID, followingID)
+	followKey := fmt.Sprintf("%d:%d", userID, followUserID)
 	_, exists := r.follows[followKey]
 	return exists
 }

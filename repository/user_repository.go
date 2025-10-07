@@ -4,16 +4,64 @@ import (
 	"fmt"
 	"sync"
 
+	"gorm.io/gorm"
 	"python-backend-with-go/models"
 )
 
 // UserRepository defines the interface for user data operations
 type UserRepository interface {
-	Create(user models.User) error
+	Create(user *models.User) error
 	GetByID(id int) (models.User, error)
 	GetByEmail(email string) (models.User, error)
 	EmailExists(email string) bool
-	GetNextUserID() int
+}
+
+// GormUserRepository implements UserRepository using GORM
+type GormUserRepository struct {
+	db *gorm.DB
+}
+
+// NewGormUserRepository creates a new GORM user repository
+func NewGormUserRepository(db *gorm.DB) *GormUserRepository {
+	return &GormUserRepository{db: db}
+}
+
+// Create adds a new user to the database
+func (r *GormUserRepository) Create(user *models.User) error {
+	return r.db.Create(user).Error
+}
+
+// GetByID retrieves a user by ID
+func (r *GormUserRepository) GetByID(id int) (models.User, error) {
+	var user models.User
+	err := r.db.First(&user, id).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return models.User{}, fmt.Errorf("user not found")
+		}
+		return models.User{}, err
+	}
+	return user, nil
+}
+
+// GetByEmail retrieves a user by email
+func (r *GormUserRepository) GetByEmail(email string) (models.User, error) {
+	var user models.User
+	err := r.db.Where("email = ?", email).First(&user).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return models.User{}, fmt.Errorf("user not found")
+		}
+		return models.User{}, err
+	}
+	return user, nil
+}
+
+// EmailExists checks if an email already exists
+func (r *GormUserRepository) EmailExists(email string) bool {
+	var count int64
+	r.db.Model(&models.User{}).Where("email = ?", email).Count(&count)
+	return count > 0
 }
 
 // InMemoryUserRepository implements UserRepository using in-memory storage
@@ -32,11 +80,12 @@ func NewInMemoryUserRepository() *InMemoryUserRepository {
 }
 
 // Create adds a new user to the repository
-func (r *InMemoryUserRepository) Create(user models.User) error {
+func (r *InMemoryUserRepository) Create(user *models.User) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.users[user.ID] = user
+	user.ID = r.nextUserID
+	r.users[user.ID] = *user
 	r.nextUserID++
 	return nil
 }

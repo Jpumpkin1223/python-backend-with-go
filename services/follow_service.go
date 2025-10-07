@@ -50,9 +50,9 @@ func (s *FollowService) Follow(followerID, followingID int) (models.FollowRespon
 	// Create follow relationship
 	now := time.Now()
 	follow := models.Follow{
-		FollowerID:  followerID,
-		FollowingID: followingID,
-		CreatedAt:   now,
+		UserID:       followerID,
+		FollowUserID: followingID,
+		CreatedAt:    now,
 	}
 
 	if err := s.followRepo.Create(follow); err != nil {

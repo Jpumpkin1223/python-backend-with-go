@@ -15,8 +15,7 @@ func setupFollowServiceTest(_ *testing.T) (*FollowService, *UserService) {
 
 	// Create test users
 	for i := 1; i <= 3; i++ {
-		userRepo.Create(models.User{
-			ID:    i,
+		userRepo.Create(&models.User{
 			Name:  "User" + string(rune('0'+i)),
 			Email: "user" + string(rune('0'+i)) + "@test.com",
 		})

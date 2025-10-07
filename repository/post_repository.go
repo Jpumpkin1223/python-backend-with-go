@@ -5,18 +5,90 @@ import (
 	"sort"
 	"sync"
 
+	"gorm.io/gorm"
 	"python-backend-with-go/models"
 )
 
 // PostRepository defines the interface for post data operations
 type PostRepository interface {
-	Create(post models.Post) error
-	Update(post models.Post) error
+	Create(post *models.Post) error
+	Update(post *models.Post) error
 	Delete(postID int) error
 	GetByID(postID int) (models.Post, error)
 	GetByUserID(userID int) ([]models.Post, error)
 	GetByUserIDs(userIDs []int) ([]models.Post, error)
-	GetNextPostID() int
+}
+
+// GormPostRepository implements PostRepository using GORM
+type GormPostRepository struct {
+	db *gorm.DB
+}
+
+// NewGormPostRepository creates a new GORM post repository
+func NewGormPostRepository(db *gorm.DB) *GormPostRepository {
+	return &GormPostRepository{db: db}
+}
+
+// Create adds a new post to the database
+func (r *GormPostRepository) Create(post *models.Post) error {
+	return r.db.Create(post).Error
+}
+
+// Update updates an existing post in the database
+func (r *GormPostRepository) Update(post *models.Post) error {
+	result := r.db.Model(post).Where("id = ?", post.ID).Update("tweet", post.Content)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("post not found")
+	}
+	return nil
+}
+
+// Delete removes a post from the database
+func (r *GormPostRepository) Delete(postID int) error {
+	result := r.db.Delete(&models.Post{}, postID)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("post not found")
+	}
+	return nil
+}
+
+// GetByID retrieves a post by ID
+func (r *GormPostRepository) GetByID(postID int) (models.Post, error) {
+	var post models.Post
+	err := r.db.First(&post, postID).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return models.Post{}, fmt.Errorf("post not found")
+		}
+		return models.Post{}, err
+	}
+	return post, nil
+}
+
+// GetByUserID retrieves all posts by a specific user
+func (r *GormPostRepository) GetByUserID(userID int) ([]models.Post, error) {
+	var posts []models.Post
+	err := r.db.Where("user_id = ?", userID).Order("created_at DESC").Find(&posts).Error
+	if err != nil {
+		return nil, err
+	}
+	return posts, nil
+}
+
+// GetByUserIDs retrieves all posts by multiple users
+func (r *GormPostRepository) GetByUserIDs(userIDs []int) ([]models.Post, error) {
+	var posts []models.Post
+	err := r.db.Where("user_id IN ?", userIDs).Order("created_at DESC").Find(&posts).Error
+	if err != nil {
+		return nil, err
+	}
+	return posts, nil
 }
 
 // InMemoryPostRepository implements PostRepository using in-memory storage
@@ -37,18 +109,19 @@ func NewInMemoryPostRepository() *InMemoryPostRepository {
 }
 
 // Create adds a new post to the repository
-func (r *InMemoryPostRepository) Create(post models.Post) error {
+func (r *InMemoryPostRepository) Create(post *models.Post) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.posts[post.ID] = post
+	post.ID = r.nextPostID
+	r.posts[post.ID] = *post
 	r.userPosts[post.UserID] = append(r.userPosts[post.UserID], post.ID)
 	r.nextPostID++
 	return nil
 }
 
 // Update updates an existing post in the repository
-func (r *InMemoryPostRepository) Update(post models.Post) error {
+func (r *InMemoryPostRepository) Update(post *models.Post) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -56,7 +129,7 @@ func (r *InMemoryPostRepository) Update(post models.Post) error {
 		return fmt.Errorf("post not found")
 	}
 
-	r.posts[post.ID] = post
+	r.posts[post.ID] = *post
 	return nil
 }
 

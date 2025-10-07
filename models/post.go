@@ -2,13 +2,17 @@ package models
 
 import "time"
 
-// Post represents a post in the system
+// Post represents a post/tweet in the system
 type Post struct {
-	ID        int       `json:"id"`
-	UserID    int       `json:"user_id"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        int       `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserID    int       `json:"user_id" gorm:"not null;index"`
+	Content   string    `json:"content" gorm:"column:tweet;type:varchar(300);not null"`
+	CreatedAt time.Time `json:"created_at" gorm:"not null;autoCreateTime"`
+}
+
+// TableName overrides the table name for Post model
+func (Post) TableName() string {
+	return "tweets"
 }
 
 // CreatePostRequest represents the create post request body
@@ -55,7 +59,6 @@ type PostWithUser struct {
 	UserName  string    `json:"user_name"`
 	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // TimelineResponse represents timeline response

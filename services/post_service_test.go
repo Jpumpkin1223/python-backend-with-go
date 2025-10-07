@@ -8,7 +8,7 @@ import (
 	"python-backend-with-go/repository"
 )
 
-func setupPostServiceTest(t *testing.T) (*PostService, *UserService, *FollowService) {
+func setupPostServiceTest(_ *testing.T) (*PostService, *UserService, *FollowService) {
 	userRepo := repository.NewInMemoryUserRepository()
 	followRepo := repository.NewInMemoryFollowRepository()
 	postRepo := repository.NewInMemoryPostRepository()
@@ -19,8 +19,7 @@ func setupPostServiceTest(t *testing.T) (*PostService, *UserService, *FollowServ
 
 	// Create test users
 	for i := 1; i <= 3; i++ {
-		userRepo.Create(models.User{
-			ID:    i,
+		userRepo.Create(&models.User{
 			Name:  "User" + string(rune('0'+i)),
 			Email: "user" + string(rune('0'+i)) + "@test.com",
 		})

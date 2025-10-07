@@ -9,17 +9,31 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
+	"python-backend-with-go/db"
 	"python-backend-with-go/handlers"
 	"python-backend-with-go/repository"
 	"python-backend-with-go/services"
 )
 
 func main() {
+	// Load .env file
+	if err := godotenv.Load(); err != nil {
+		slog.Warn("No .env file found, using environment variables")
+	}
+
 	// Setup structured logging
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
+
+	// Initialize database
+	if err := db.InitDatabase(); err != nil {
+		slog.Error("Failed to initialize database", "error", err)
+		os.Exit(1)
+	}
+	defer db.CloseDatabase()
 
 	// Get port from environment variable (default: 8080)
 	port := os.Getenv("PORT")
@@ -27,10 +41,10 @@ func main() {
 		port = "8080"
 	}
 
-	// Initialize repositories
-	userRepo := repository.NewInMemoryUserRepository()
-	followRepo := repository.NewInMemoryFollowRepository()
-	postRepo := repository.NewInMemoryPostRepository()
+	// Initialize repositories (now using GORM)
+	userRepo := repository.NewGormUserRepository(db.DB)
+	followRepo := repository.NewGormFollowRepository(db.DB)
+	postRepo := repository.NewGormPostRepository(db.DB)
 
 	// Initialize services
 	userService := services.NewUserService(userRepo)

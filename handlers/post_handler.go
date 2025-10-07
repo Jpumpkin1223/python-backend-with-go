@@ -28,7 +28,8 @@ func (h *PostHandler) HandleCreatePost(w http.ResponseWriter, r *http.Request) {
 
 	// Decode request body
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		handleError(w, fmt.Errorf("invalid request body"), http.StatusBadRequest)
+		slog.Error("Failed to decode create post request", "error", err)
+		handleError(w, fmt.Errorf("invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
 
