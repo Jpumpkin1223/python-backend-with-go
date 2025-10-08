@@ -78,22 +78,26 @@ func main() {
 	router.POST("/api/signup", userHandler.HandleSignup)
 	router.POST("/api/login", authHandler.HandleLogin)
 
-	// Protected routes (require authentication) - applied per route group
+	// Public read-only routes (팔로우/게시글 조회는 공개)
+	router.GET("/api/users/:userID/followers", followHandler.HandleGetFollowers)
+	router.GET("/api/users/:userID/following", followHandler.HandleGetFollowing)
+	router.GET("/api/users/:userID/posts", postHandler.HandleGetUserPosts)
+
+	// Protected routes (require authentication)
 	protected := router.Group("/")
 	protected.Use(handlers.AuthMiddlewareGin(authService))
 	{
-		// Follow/Unfollow routes
+		// Follow/Unfollow routes (작성/수정/삭제는 인증 필요)
 		protected.POST("/api/users/:userID/follow", followHandler.HandleFollow)
 		protected.DELETE("/api/users/:userID/follow", followHandler.HandleUnfollow)
-		protected.GET("/api/users/:userID/followers", followHandler.HandleGetFollowers)
-		protected.GET("/api/users/:userID/following", followHandler.HandleGetFollowing)
 		protected.GET("/api/users/:userID/follow-status", followHandler.HandleGetFollowStatus)
 
-		// Post routes
+		// Post routes (작성/수정/삭제는 인증 필요)
 		protected.POST("/api/posts", postHandler.HandleCreatePost)
 		protected.PUT("/api/posts/:postID", postHandler.HandleUpdatePost)
 		protected.DELETE("/api/posts/:postID", postHandler.HandleDeletePost)
-		protected.GET("/api/users/:userID/posts", postHandler.HandleGetUserPosts)
+
+		// Timeline routes (인증 필요 - 개인화된 콘텐츠)
 		protected.GET("/api/users/:userID/timeline", postHandler.HandleGetTimeline)
 	}
 

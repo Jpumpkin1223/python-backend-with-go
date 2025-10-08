@@ -347,8 +347,9 @@ else
     print_test 1 "사용자 게시글 목록 조회 실패" "$RESPONSE"
 fi
 
-# Test 21: 타임라인 조회 (User2가 User1을 팔로우 중) (공개 API)
-RESPONSE=$(curl -s -X GET "$BASE_URL/api/users/$USER2_ID/timeline")
+# Test 21: 타임라인 조회 (User2가 User1을 팔로우 중) with JWT
+RESPONSE=$(curl -s -X GET "$BASE_URL/api/users/$USER2_ID/timeline" \
+  -H "Authorization: Bearer $USER2_TOKEN")
 
 if echo "$RESPONSE" | grep -q "수정된 게시글입니다"; then
     print_test 0 "타임라인 조회 성공"
