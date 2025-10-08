@@ -1,10 +1,12 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
+
+	"github.com/gin-gonic/gin"
 
 	"python-backend-with-go/models"
 	"python-backend-with-go/services"
@@ -23,20 +25,20 @@ func NewFollowHandler(followService *services.FollowService) *FollowHandler {
 }
 
 // HandleFollow handles follow requests
-func (h *FollowHandler) HandleFollow(w http.ResponseWriter, r *http.Request) {
+func (h *FollowHandler) HandleFollow(c *gin.Context) {
 	var req models.FollowRequest
 
-	// Decode request body
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		handleError(w, fmt.Errorf("invalid request body"), http.StatusBadRequest)
+	// Bind request body
+	if err := c.ShouldBindJSON(&req); err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid request body"), http.StatusBadRequest)
 		return
 	}
 
 	// Get following ID from URL path
-	followingIDStr := r.PathValue("userID")
-	followingID := 0
-	if _, err := fmt.Sscanf(followingIDStr, "%d", &followingID); err != nil {
-		handleError(w, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
+	followingIDStr := c.Param("userID")
+	followingID, err := strconv.Atoi(followingIDStr)
+	if err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
 		return
 	}
 
@@ -45,45 +47,39 @@ func (h *FollowHandler) HandleFollow(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err.Error() {
 		case "follower_id and following user ID are required":
-			handleError(w, err, http.StatusBadRequest)
+			handleErrorGin(c, err, http.StatusBadRequest)
 		case "cannot follow yourself":
-			handleError(w, err, http.StatusBadRequest)
+			handleErrorGin(c, err, http.StatusBadRequest)
 		case "follower user not found", "following user not found":
-			handleError(w, err, http.StatusNotFound)
+			handleErrorGin(c, err, http.StatusNotFound)
 		case "already following this user":
-			handleError(w, err, http.StatusConflict)
+			handleErrorGin(c, err, http.StatusConflict)
 		default:
-			handleError(w, err, http.StatusInternalServerError)
+			handleErrorGin(c, err, http.StatusInternalServerError)
 		}
 		return
 	}
 
 	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
-
+	c.JSON(http.StatusCreated, resp)
 	slog.Info("Follow created", "follower_id", req.FollowerID, "following_id", followingID)
 }
 
 // HandleUnfollow handles unfollow requests
-func (h *FollowHandler) HandleUnfollow(w http.ResponseWriter, r *http.Request) {
+func (h *FollowHandler) HandleUnfollow(c *gin.Context) {
 	var req models.FollowRequest
 
-	// Decode request body
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		handleError(w, fmt.Errorf("invalid request body"), http.StatusBadRequest)
+	// Bind request body
+	if err := c.ShouldBindJSON(&req); err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid request body"), http.StatusBadRequest)
 		return
 	}
 
 	// Get following ID from URL path
-	followingIDStr := r.PathValue("userID")
-	followingID := 0
-	if _, err := fmt.Sscanf(followingIDStr, "%d", &followingID); err != nil {
-		handleError(w, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
+	followingIDStr := c.Param("userID")
+	followingID, err := strconv.Atoi(followingIDStr)
+	if err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
 		return
 	}
 
@@ -92,33 +88,27 @@ func (h *FollowHandler) HandleUnfollow(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err.Error() {
 		case "follower_id and following user ID are required":
-			handleError(w, err, http.StatusBadRequest)
+			handleErrorGin(c, err, http.StatusBadRequest)
 		case "follow relationship not found":
-			handleError(w, err, http.StatusNotFound)
+			handleErrorGin(c, err, http.StatusNotFound)
 		default:
-			handleError(w, err, http.StatusInternalServerError)
+			handleErrorGin(c, err, http.StatusInternalServerError)
 		}
 		return
 	}
 
 	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
-
+	c.JSON(http.StatusOK, resp)
 	slog.Info("Follow deleted", "follower_id", req.FollowerID, "following_id", followingID)
 }
 
 // HandleGetFollowers handles get followers requests
-func (h *FollowHandler) HandleGetFollowers(w http.ResponseWriter, r *http.Request) {
+func (h *FollowHandler) HandleGetFollowers(c *gin.Context) {
 	// Get user ID from URL path
-	userIDStr := r.PathValue("userID")
-	userID := 0
-	if _, err := fmt.Sscanf(userIDStr, "%d", &userID); err != nil {
-		handleError(w, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
+	userIDStr := c.Param("userID")
+	userID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
 		return
 	}
 
@@ -126,31 +116,25 @@ func (h *FollowHandler) HandleGetFollowers(w http.ResponseWriter, r *http.Reques
 	resp, err := h.followService.GetFollowers(userID)
 	if err != nil {
 		if err.Error() == "user not found" {
-			handleError(w, err, http.StatusNotFound)
+			handleErrorGin(c, err, http.StatusNotFound)
 		} else {
-			handleError(w, err, http.StatusInternalServerError)
+			handleErrorGin(c, err, http.StatusInternalServerError)
 		}
 		return
 	}
 
 	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
-
+	c.JSON(http.StatusOK, resp)
 	slog.Info("Followers retrieved", "user_id", userID, "count", resp.Count)
 }
 
 // HandleGetFollowing handles get following requests
-func (h *FollowHandler) HandleGetFollowing(w http.ResponseWriter, r *http.Request) {
+func (h *FollowHandler) HandleGetFollowing(c *gin.Context) {
 	// Get user ID from URL path
-	userIDStr := r.PathValue("userID")
-	userID := 0
-	if _, err := fmt.Sscanf(userIDStr, "%d", &userID); err != nil {
-		handleError(w, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
+	userIDStr := c.Param("userID")
+	userID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
 		return
 	}
 
@@ -158,44 +142,38 @@ func (h *FollowHandler) HandleGetFollowing(w http.ResponseWriter, r *http.Reques
 	resp, err := h.followService.GetFollowing(userID)
 	if err != nil {
 		if err.Error() == "user not found" {
-			handleError(w, err, http.StatusNotFound)
+			handleErrorGin(c, err, http.StatusNotFound)
 		} else {
-			handleError(w, err, http.StatusInternalServerError)
+			handleErrorGin(c, err, http.StatusInternalServerError)
 		}
 		return
 	}
 
 	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
-
+	c.JSON(http.StatusOK, resp)
 	slog.Info("Following retrieved", "user_id", userID, "count", resp.Count)
 }
 
 // HandleGetFollowStatus handles get follow status requests
-func (h *FollowHandler) HandleGetFollowStatus(w http.ResponseWriter, r *http.Request) {
+func (h *FollowHandler) HandleGetFollowStatus(c *gin.Context) {
 	// Get following ID from URL path
-	followingIDStr := r.PathValue("userID")
-	followingID := 0
-	if _, err := fmt.Sscanf(followingIDStr, "%d", &followingID); err != nil {
-		handleError(w, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
+	followingIDStr := c.Param("userID")
+	followingID, err := strconv.Atoi(followingIDStr)
+	if err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
 		return
 	}
 
 	// Get follower ID from query parameter
-	followerIDStr := r.URL.Query().Get("follower_id")
+	followerIDStr := c.Query("follower_id")
 	if followerIDStr == "" {
-		handleError(w, fmt.Errorf("follower_id query parameter is required"), http.StatusBadRequest)
+		handleErrorGin(c, fmt.Errorf("follower_id query parameter is required"), http.StatusBadRequest)
 		return
 	}
 
-	followerID := 0
-	if _, err := fmt.Sscanf(followerIDStr, "%d", &followerID); err != nil {
-		handleError(w, fmt.Errorf("invalid follower_id"), http.StatusBadRequest)
+	followerID, err := strconv.Atoi(followerIDStr)
+	if err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid follower_id"), http.StatusBadRequest)
 		return
 	}
 
@@ -203,12 +181,6 @@ func (h *FollowHandler) HandleGetFollowStatus(w http.ResponseWriter, r *http.Req
 	resp := h.followService.GetFollowStatus(followerID, followingID)
 
 	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
-
+	c.JSON(http.StatusOK, resp)
 	slog.Info("Follow status checked", "follower_id", followerID, "following_id", followingID, "is_following", resp.IsFollowing)
 }

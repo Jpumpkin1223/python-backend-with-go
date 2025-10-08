@@ -1,10 +1,11 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 
 	"python-backend-with-go/models"
 	"python-backend-with-go/services"
@@ -23,12 +24,12 @@ func NewAuthHandler(authService *services.AuthService) *AuthHandler {
 }
 
 // HandleLogin handles user login
-func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) HandleLogin(c *gin.Context) {
 	var req models.LoginRequest
 
-	// Decode request body
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		handleError(w, fmt.Errorf("invalid request body"), http.StatusBadRequest)
+	// Bind request body
+	if err := c.ShouldBindJSON(&req); err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid request body"), http.StatusBadRequest)
 		return
 	}
 
@@ -37,22 +38,16 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err.Error() {
 		case "email and password are required":
-			handleError(w, err, http.StatusBadRequest)
+			handleErrorGin(c, err, http.StatusBadRequest)
 		case "invalid email or password":
-			handleError(w, err, http.StatusUnauthorized)
+			handleErrorGin(c, err, http.StatusUnauthorized)
 		default:
-			handleError(w, err, http.StatusInternalServerError)
+			handleErrorGin(c, err, http.StatusInternalServerError)
 		}
 		return
 	}
 
 	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
-
+	c.JSON(http.StatusOK, resp)
 	slog.Info("User logged in successfully", "user_id", resp.UserID, "email", req.Email)
 }

@@ -9,7 +9,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+
 	"python-backend-with-go/db"
 	"python-backend-with-go/handlers"
 	"python-backend-with-go/repository"
@@ -58,47 +60,47 @@ func main() {
 	followHandler := handlers.NewFollowHandler(followService)
 	postHandler := handlers.NewPostHandler(postService)
 
-	// Create new ServeMux (Go 1.22+ with enhanced routing)
-	mux := http.NewServeMux()
+	// Create Gin engine with middleware
+	router := gin.New()
 
-	// Register routes with method-specific handlers
+	// Apply global middleware
+	router.Use(handlers.GinLoggingMiddleware())
+	router.Use(handlers.GinRecoveryMiddleware())
+	router.Use(handlers.GinCORSMiddleware())
+	router.Use(handlers.GinSecurityHeadersMiddleware())
+	// Note: Auth middleware is applied per route group for protected routes
+
+	// Register routes
 	// Public routes
-	mux.HandleFunc("GET /", handlers.HandleRoot)
-	mux.HandleFunc("GET /health", handlers.HandleHealth)
-	mux.HandleFunc("GET /api/hello", handlers.HandleAPIHello)
-	mux.HandleFunc("POST /api/signup", userHandler.HandleSignup)
-	mux.HandleFunc("POST /api/login", authHandler.HandleLogin)
+	router.GET("/", handlers.HandleRoot)
+	router.GET("/health", handlers.HandleHealth)
+	router.GET("/api/hello", handlers.HandleAPIHello)
+	router.POST("/api/signup", userHandler.HandleSignup)
+	router.POST("/api/login", authHandler.HandleLogin)
 
-	// Protected routes (require authentication)
-	authMiddleware := handlers.AuthMiddleware(authService)
+	// Protected routes (require authentication) - applied per route group
+	protected := router.Group("/")
+	protected.Use(handlers.AuthMiddlewareGin(authService))
+	{
+		// Follow/Unfollow routes
+		protected.POST("/api/users/:userID/follow", followHandler.HandleFollow)
+		protected.DELETE("/api/users/:userID/follow", followHandler.HandleUnfollow)
+		protected.GET("/api/users/:userID/followers", followHandler.HandleGetFollowers)
+		protected.GET("/api/users/:userID/following", followHandler.HandleGetFollowing)
+		protected.GET("/api/users/:userID/follow-status", followHandler.HandleGetFollowStatus)
 
-	// Follow/Unfollow routes
-	mux.Handle("POST /api/users/{userID}/follow", authMiddleware(http.HandlerFunc(followHandler.HandleFollow)))
-	mux.Handle("DELETE /api/users/{userID}/follow", authMiddleware(http.HandlerFunc(followHandler.HandleUnfollow)))
-	mux.HandleFunc("GET /api/users/{userID}/followers", followHandler.HandleGetFollowers)
-	mux.HandleFunc("GET /api/users/{userID}/following", followHandler.HandleGetFollowing)
-	mux.HandleFunc("GET /api/users/{userID}/follow-status", followHandler.HandleGetFollowStatus)
+		// Post routes
+		protected.POST("/api/posts", postHandler.HandleCreatePost)
+		protected.PUT("/api/posts/:postID", postHandler.HandleUpdatePost)
+		protected.DELETE("/api/posts/:postID", postHandler.HandleDeletePost)
+		protected.GET("/api/users/:userID/posts", postHandler.HandleGetUserPosts)
+		protected.GET("/api/users/:userID/timeline", postHandler.HandleGetTimeline)
+	}
 
-	// Post routes
-	mux.Handle("POST /api/posts", authMiddleware(http.HandlerFunc(postHandler.HandleCreatePost)))
-	mux.Handle("PUT /api/posts/{postID}", authMiddleware(http.HandlerFunc(postHandler.HandleUpdatePost)))
-	mux.Handle("DELETE /api/posts/{postID}", authMiddleware(http.HandlerFunc(postHandler.HandleDeletePost)))
-	mux.HandleFunc("GET /api/users/{userID}/posts", postHandler.HandleGetUserPosts)
-	mux.HandleFunc("GET /api/users/{userID}/timeline", postHandler.HandleGetTimeline)
-
-	// Apply middleware chain
-	handler := handlers.LoggingMiddleware(
-		handlers.RecoveryMiddleware(
-			handlers.CORSMiddleware(
-				handlers.SecurityHeadersMiddleware(mux),
-			),
-		),
-	)
-
-	// Create HTTP server with timeouts
+	// Create HTTP server with timeouts (wrapping Gin)
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      handler,
+		Handler:      router,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

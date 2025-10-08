@@ -1,10 +1,12 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
+
+	"github.com/gin-gonic/gin"
 
 	"python-backend-with-go/models"
 	"python-backend-with-go/services"
@@ -23,13 +25,13 @@ func NewPostHandler(postService *services.PostService) *PostHandler {
 }
 
 // HandleCreatePost handles create post requests
-func (h *PostHandler) HandleCreatePost(w http.ResponseWriter, r *http.Request) {
+func (h *PostHandler) HandleCreatePost(c *gin.Context) {
 	var req models.CreatePostRequest
 
-	// Decode request body
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// Bind request body
+	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Error("Failed to decode create post request", "error", err)
-		handleError(w, fmt.Errorf("invalid request body: %v", err), http.StatusBadRequest)
+		handleErrorGin(c, fmt.Errorf("invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
 
@@ -38,49 +40,43 @@ func (h *PostHandler) HandleCreatePost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err.Error() {
 		case "user_id is required":
-			handleError(w, err, http.StatusBadRequest)
+			handleErrorGin(c, err, http.StatusBadRequest)
 		case "user not found":
-			handleError(w, err, http.StatusNotFound)
+			handleErrorGin(c, err, http.StatusNotFound)
 		case "content is required":
-			handleError(w, err, http.StatusBadRequest)
+			handleErrorGin(c, err, http.StatusBadRequest)
 		case fmt.Sprintf("content must be %d characters or less", services.MaxPostContentLength):
-			handleError(w, err, http.StatusBadRequest)
+			handleErrorGin(c, err, http.StatusBadRequest)
 		default:
 			if err.Error() == fmt.Sprintf("content must be %d characters or less", services.MaxPostContentLength) {
-				handleError(w, err, http.StatusBadRequest)
+				handleErrorGin(c, err, http.StatusBadRequest)
 			} else {
-				handleError(w, err, http.StatusInternalServerError)
+				handleErrorGin(c, err, http.StatusInternalServerError)
 			}
 		}
 		return
 	}
 
 	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
-
+	c.JSON(http.StatusCreated, resp)
 	slog.Info("Post created", "post_id", resp.PostID, "user_id", req.UserID)
 }
 
 // HandleUpdatePost handles update post requests
-func (h *PostHandler) HandleUpdatePost(w http.ResponseWriter, r *http.Request) {
+func (h *PostHandler) HandleUpdatePost(c *gin.Context) {
 	var req models.UpdatePostRequest
 
-	// Decode request body
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		handleError(w, fmt.Errorf("invalid request body"), http.StatusBadRequest)
+	// Bind request body
+	if err := c.ShouldBindJSON(&req); err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid request body"), http.StatusBadRequest)
 		return
 	}
 
 	// Get post ID from URL path
-	postIDStr := r.PathValue("postID")
-	postID := 0
-	if _, err := fmt.Sscanf(postIDStr, "%d", &postID); err != nil {
-		handleError(w, fmt.Errorf("invalid post ID"), http.StatusBadRequest)
+	postIDStr := c.Param("postID")
+	postID, err := strconv.Atoi(postIDStr)
+	if err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid post ID"), http.StatusBadRequest)
 		return
 	}
 
@@ -89,49 +85,43 @@ func (h *PostHandler) HandleUpdatePost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err.Error() {
 		case "post_id and user_id are required":
-			handleError(w, err, http.StatusBadRequest)
+			handleErrorGin(c, err, http.StatusBadRequest)
 		case "content is required":
-			handleError(w, err, http.StatusBadRequest)
+			handleErrorGin(c, err, http.StatusBadRequest)
 		case "post not found":
-			handleError(w, err, http.StatusNotFound)
+			handleErrorGin(c, err, http.StatusNotFound)
 		case "unauthorized to update this post":
-			handleError(w, err, http.StatusForbidden)
+			handleErrorGin(c, err, http.StatusForbidden)
 		default:
 			if err.Error() == fmt.Sprintf("content must be %d characters or less", services.MaxPostContentLength) {
-				handleError(w, err, http.StatusBadRequest)
+				handleErrorGin(c, err, http.StatusBadRequest)
 			} else {
-				handleError(w, err, http.StatusInternalServerError)
+				handleErrorGin(c, err, http.StatusInternalServerError)
 			}
 		}
 		return
 	}
 
 	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
-
+	c.JSON(http.StatusOK, resp)
 	slog.Info("Post updated", "post_id", postID, "user_id", req.UserID)
 }
 
 // HandleDeletePost handles delete post requests
-func (h *PostHandler) HandleDeletePost(w http.ResponseWriter, r *http.Request) {
+func (h *PostHandler) HandleDeletePost(c *gin.Context) {
 	var req models.DeletePostRequest
 
-	// Decode request body
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		handleError(w, fmt.Errorf("invalid request body"), http.StatusBadRequest)
+	// Bind request body
+	if err := c.ShouldBindJSON(&req); err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid request body"), http.StatusBadRequest)
 		return
 	}
 
 	// Get post ID from URL path
-	postIDStr := r.PathValue("postID")
-	postID := 0
-	if _, err := fmt.Sscanf(postIDStr, "%d", &postID); err != nil {
-		handleError(w, fmt.Errorf("invalid post ID"), http.StatusBadRequest)
+	postIDStr := c.Param("postID")
+	postID, err := strconv.Atoi(postIDStr)
+	if err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid post ID"), http.StatusBadRequest)
 		return
 	}
 
@@ -140,35 +130,29 @@ func (h *PostHandler) HandleDeletePost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err.Error() {
 		case "post_id and user_id are required":
-			handleError(w, err, http.StatusBadRequest)
+			handleErrorGin(c, err, http.StatusBadRequest)
 		case "post not found":
-			handleError(w, err, http.StatusNotFound)
+			handleErrorGin(c, err, http.StatusNotFound)
 		case "unauthorized to delete this post":
-			handleError(w, err, http.StatusForbidden)
+			handleErrorGin(c, err, http.StatusForbidden)
 		default:
-			handleError(w, err, http.StatusInternalServerError)
+			handleErrorGin(c, err, http.StatusInternalServerError)
 		}
 		return
 	}
 
 	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
-
+	c.JSON(http.StatusOK, resp)
 	slog.Info("Post deleted", "post_id", postID, "user_id", req.UserID)
 }
 
 // HandleGetUserPosts handles get user posts requests
-func (h *PostHandler) HandleGetUserPosts(w http.ResponseWriter, r *http.Request) {
+func (h *PostHandler) HandleGetUserPosts(c *gin.Context) {
 	// Get user ID from URL path
-	userIDStr := r.PathValue("userID")
-	userID := 0
-	if _, err := fmt.Sscanf(userIDStr, "%d", &userID); err != nil {
-		handleError(w, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
+	userIDStr := c.Param("userID")
+	userID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
 		return
 	}
 
@@ -176,31 +160,25 @@ func (h *PostHandler) HandleGetUserPosts(w http.ResponseWriter, r *http.Request)
 	resp, err := h.postService.GetUserPosts(userID)
 	if err != nil {
 		if err.Error() == "user not found" {
-			handleError(w, err, http.StatusNotFound)
+			handleErrorGin(c, err, http.StatusNotFound)
 		} else {
-			handleError(w, err, http.StatusInternalServerError)
+			handleErrorGin(c, err, http.StatusInternalServerError)
 		}
 		return
 	}
 
 	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
-
+	c.JSON(http.StatusOK, resp)
 	slog.Info("User posts retrieved", "user_id", userID, "count", resp.Count)
 }
 
 // HandleGetTimeline handles get timeline requests
-func (h *PostHandler) HandleGetTimeline(w http.ResponseWriter, r *http.Request) {
+func (h *PostHandler) HandleGetTimeline(c *gin.Context) {
 	// Get user ID from URL path
-	userIDStr := r.PathValue("userID")
-	userID := 0
-	if _, err := fmt.Sscanf(userIDStr, "%d", &userID); err != nil {
-		handleError(w, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
+	userIDStr := c.Param("userID")
+	userID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid user ID"), http.StatusBadRequest)
 		return
 	}
 
@@ -208,20 +186,14 @@ func (h *PostHandler) HandleGetTimeline(w http.ResponseWriter, r *http.Request) 
 	resp, err := h.postService.GetTimeline(userID)
 	if err != nil {
 		if err.Error() == "user not found" {
-			handleError(w, err, http.StatusNotFound)
+			handleErrorGin(c, err, http.StatusNotFound)
 		} else {
-			handleError(w, err, http.StatusInternalServerError)
+			handleErrorGin(c, err, http.StatusInternalServerError)
 		}
 		return
 	}
 
 	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
-
+	c.JSON(http.StatusOK, resp)
 	slog.Info("Timeline retrieved", "user_id", userID, "count", resp.Count)
 }

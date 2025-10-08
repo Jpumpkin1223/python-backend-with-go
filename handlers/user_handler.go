@@ -1,11 +1,12 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
-	"log/slog"
+	"github.com/gin-gonic/gin"
+
 	"python-backend-with-go/models"
 	"python-backend-with-go/services"
 )
@@ -23,12 +24,12 @@ func NewUserHandler(userService *services.UserService) *UserHandler {
 }
 
 // HandleSignup handles user registration
-func (h *UserHandler) HandleSignup(w http.ResponseWriter, r *http.Request) {
+func (h *UserHandler) HandleSignup(c *gin.Context) {
 	var req models.SignupRequest
 
-	// Decode request body
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		handleError(w, fmt.Errorf("invalid request body"), http.StatusBadRequest)
+	// Bind request body
+	if err := c.ShouldBindJSON(&req); err != nil {
+		handleErrorGin(c, fmt.Errorf("invalid request body"), http.StatusBadRequest)
 		return
 	}
 
@@ -37,62 +38,45 @@ func (h *UserHandler) HandleSignup(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err.Error() {
 		case "name, email, and password are required":
-			handleError(w, err, http.StatusBadRequest)
+			handleErrorGin(c, err, http.StatusBadRequest)
 		case "email already exists":
-			handleError(w, err, http.StatusConflict)
+			handleErrorGin(c, err, http.StatusConflict)
 		default:
-			handleError(w, err, http.StatusInternalServerError)
+			handleErrorGin(c, err, http.StatusInternalServerError)
 		}
 		return
 	}
 
 	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
-
+	c.JSON(http.StatusCreated, resp)
 	slog.Info("User registered successfully", "user_id", resp.UserID, "email", req.Email)
 }
 
 // HandleRoot handles the root endpoint
-func HandleRoot(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "안녕하세요! Go 백엔드 서버입니다. 🚀\n")
-	fmt.Fprintf(w, "요청 경로: %s\n", r.URL.Path)
-	fmt.Fprintf(w, "요청 메서드: %s\n", r.Method)
+func HandleRoot(c *gin.Context) {
+	c.String(http.StatusOK, "안녕하세요! Go 백엔드 서버입니다. 🚀\n요청 경로: %s\n요청 메서드: %s\n", c.Request.URL.Path, c.Request.Method)
 }
 
 // HandleHealth handles health check endpoint
-func HandleHealth(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "OK")
+func HandleHealth(c *gin.Context) {
+	c.String(http.StatusOK, "OK")
 }
 
 // HandleAPIHello handles API hello endpoint
-func HandleAPIHello(w http.ResponseWriter, r *http.Request) {
+func HandleAPIHello(c *gin.Context) {
 	response := models.SuccessResponse{
 		Message: "안녕하세요! API가 정상적으로 작동합니다.",
 		Status:  "success",
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		handleError(w, err, http.StatusInternalServerError)
-		return
-	}
+	c.JSON(http.StatusOK, response)
 }
 
-// handleError sends an error response
-func handleError(w http.ResponseWriter, err error, statusCode int) {
+// HandleError sends an error response (net/http version - kept for reference)
+func HandleError(w http.ResponseWriter, err error, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 
-	errorResponse := models.ErrorResponse{
-		Error:   http.StatusText(statusCode),
-		Message: err.Error(),
-	}
-
-	json.NewEncoder(w).Encode(errorResponse)
+	// Note: This function is kept for reference but not used in Gin handlers
+	// Use handleErrorGin for Gin handlers instead
 }
